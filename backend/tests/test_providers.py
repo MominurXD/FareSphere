@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import asyncio
 import json
@@ -224,25 +225,48 @@ def test_tfl_network_parses_real_line_shape_without_key():
     asyncio.run(_run())
 
 
-def test_national_rail_uses_trainiac_without_owner_api_key():
+def test_national_rail_uses_trainiac_v1_without_owner_api_key():
     async def _run():
         async def handler(request: httpx.Request):
-            assert request.url.path == "/api/departures/KGX"
+            assert request.url.path == "/v1/departures/KGX"
             assert request.url.params["limit"] == "10"
             return httpx.Response(200, json={
-                "generated_at": "2026-10-05T22:00:00+01:00",
-                "resolved": {"station": {"name": "KINGS CROSS LONDON", "crs": "KGX"}},
-                "results": [{
-                    "departs": "2026-10-05T22:10:00+01:00",
-                    "expected_departs": "2026-10-05T22:14:00+01:00",
-                    "train_id": "123",
-                    "headcode": "1A23",
-                    "status": "expected_late",
-                    "status_text": "Expected 22:14",
-                    "platform": "5",
-                    "operator": "LNER",
-                    "destination": {"name": "EDINBURGH", "crs": "EDB"},
+                "type": "ok",
+                "request": {
+                    "station": {
+                        "query": "KGX",
+                        "resolution": {"type": "station", "crs": "KGX", "name": "London Kings Cross"},
+                    },
+                    "calling_at": None,
+                    "from_time": None,
+                    "to_time": None,
+                    "limit": 10,
+                },
+                "data": [{
+                    "train": {
+                        "id": "123",
+                        "uid": "C123",
+                        "headcode": "1A23",
+                        "operator": {"code": "GR", "name": "LNER"},
+                    },
+                    "service_class": "passenger",
+                    "origin": {"type": "station", "crs": "KGX", "name": "London Kings Cross"},
+                    "destination": {"type": "station", "crs": "EDB", "name": "Edinburgh"},
+                    "departs": {
+                        "scheduled": "2026-10-05T22:10:00+01:00",
+                        "estimate": {"type": "forecast", "at": "2026-10-05T22:14:00+01:00", "source": "darwin"},
+                        "delay_minutes": 4,
+                    },
+                    "platform": {"type": "known", "number": "5", "source": "forecast"},
+                    "calling_points": [],
+                    "destination_arrival": "2026-10-06T02:30:00+01:00",
+                    "coaches": None,
+                    "formation_changes": [],
+                    "formed_from": None,
+                    "delay_reason": None,
+                    "advertised": True,
                 }],
+                "generated_at": "2026-10-05T22:00:00+01:00",
             })
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -257,8 +281,96 @@ def test_national_rail_uses_trainiac_without_owner_api_key():
 
         assert result.station == "KGX"
         assert result.provider.startswith("traini.ac")
-        assert result.departures[0].destination == "EDINBURGH"
+        assert result.departures[0].destination == "Edinburgh"
         assert result.departures[0].scheduled == "22:10"
         assert result.departures[0].expected == "22:14"
         assert result.departures[0].platform == "5"
+    asyncio.run(_run())
+
+
+def test_national_rail_station_search_and_live_journey_have_no_fake_fare():
+    async def _run():
+        today = datetime.now(ZoneInfo("Europe/London")).date()
+
+        async def handler(request: httpx.Request):
+            if request.url.path == "/v1/stations":
+                query = request.url.params["q"]
+                crs = "EUS" if query.upper() == "EUS" else "MAN"
+                name = "London Euston" if crs == "EUS" else "Manchester Piccadilly"
+                return httpx.Response(200, json={
+                    "type": "ok",
+                    "request": {"q": query},
+                    "data": {
+                        "resolves_to": {"type": "station", "crs": crs, "name": name},
+                        "matches": [{"type": "station", "crs": crs, "name": name, "tiploc": crs, "stanox": None, "calls_today": 100}],
+                        "near_misses": False,
+                    },
+                    "generated_at": "2026-10-05T22:00:00+01:00",
+                })
+
+            assert request.url.path == "/v1/journey/EUS/MAN"
+            assert request.url.params["from_time"] == "09:00"
+            return httpx.Response(200, json={
+                "type": "ok",
+                "request": {},
+                "data": [{
+                    "type": "direct",
+                    "departs": {
+                        "scheduled": f"{today.isoformat()}T09:13:00+01:00",
+                        "estimate": {"type": "forecast", "at": f"{today.isoformat()}T09:15:00+01:00", "source": "darwin"},
+                        "delay_minutes": 2,
+                    },
+                    "arrives": {
+                        "scheduled": f"{today.isoformat()}T11:20:00+01:00",
+                        "estimate": {"type": "forecast", "at": f"{today.isoformat()}T11:22:00+01:00", "source": "darwin"},
+                        "delay_minutes": 2,
+                    },
+                    "duration_minutes": 127,
+                    "leg": {
+                        "train": {"id": "T1", "uid": "U1", "headcode": "1H01", "operator": {"code": "VT", "name": "Avanti West Coast"}},
+                        "service_class": "passenger",
+                        "from": {"type": "station", "crs": "EUS", "name": "London Euston"},
+                        "departs": {
+                            "scheduled": f"{today.isoformat()}T09:13:00+01:00",
+                            "estimate": {"type": "forecast", "at": f"{today.isoformat()}T09:15:00+01:00", "source": "darwin"},
+                            "delay_minutes": 2,
+                        },
+                        "departure_platform": {"type": "known", "number": "6", "source": "forecast"},
+                        "to": {"type": "station", "crs": "MAN", "name": "Manchester Piccadilly"},
+                        "arrives": {
+                            "scheduled": f"{today.isoformat()}T11:20:00+01:00",
+                            "estimate": {"type": "forecast", "at": f"{today.isoformat()}T11:22:00+01:00", "source": "darwin"},
+                            "delay_minutes": 2,
+                        },
+                        "arrival_platform": {"type": "known", "number": "7", "source": "forecast"},
+                        "coaches": 11,
+                    },
+                }],
+                "generated_at": f"{today.isoformat()}T08:55:00+01:00",
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        provider = NationalRailProvider(client=client, api_key="", trainiac_base_url="https://api.traini.ac")
+        try:
+            assert await provider.resolves_as_rail("EUS") is True
+            assert await provider.resolves_as_rail("MAN") is True
+            result = await provider.journeys(SearchRequest(
+                origin="EUS",
+                destination="MAN",
+                departure_date=today,
+                departure_time="09:00",
+                passengers=1,
+                checked_bags=0,
+                flexible_days=0,
+                sort="best",
+            ))
+        finally:
+            await client.aclose()
+
+        assert result.providers_used == ["GB Rail Live (traini.ac)"]
+        assert result.results[0].total_price is None
+        assert result.results[0].price_verified is False
+        assert result.results[0].legs[0].platform == "6"
+        assert result.results[0].legs[0].number == "1H01"
+        assert "Fare not supplied" in result.results[0].badges
     asyncio.run(_run())

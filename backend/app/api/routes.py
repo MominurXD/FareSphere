@@ -68,6 +68,14 @@ async def london_network():
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.get("/rail/stations")
+async def rail_stations(q: str = Query(min_length=2, max_length=64)):
+    try:
+        return await NationalRailProvider().station_search(q)
+    except ProviderUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.get("/rail/departures/{crs}")
 async def rail_departures(crs: str, num_rows: int = Query(default=10, ge=1, le=50)):
     try:

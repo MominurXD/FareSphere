@@ -22,8 +22,10 @@ class Place(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    origin: str = Field(min_length=3, max_length=3)
-    destination: str = Field(min_length=3, max_length=3)
+    # Three-letter IATA/CRS codes remain supported, but rail station names and
+    # groups such as "London Paddington" / "Manchester" are also accepted.
+    origin: str = Field(min_length=2, max_length=64)
+    destination: str = Field(min_length=2, max_length=64)
     departure_date: date
     departure_time: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     passengers: int = Field(default=1, ge=1, le=9)
@@ -40,7 +42,7 @@ class Leg(BaseModel):
     destination: Place
     depart_at: datetime
     arrive_at: datetime
-    ticket_price: float
+    ticket_price: float | None
     currency: str = "GBP"
     baggage_price: float = 0
     transfer_price: float = 0
@@ -48,13 +50,15 @@ class Leg(BaseModel):
     self_transfer: bool = False
     price_verified: bool = True
     source: str
+    status: str | None = None
+    platform: str | None = None
 
 
 class Journey(BaseModel):
     id: str
     label: str
     legs: list[Leg]
-    total_price: float
+    total_price: float | None
     currency: str = "GBP"
     total_duration_minutes: int
     total_emissions_kg: float | None = None

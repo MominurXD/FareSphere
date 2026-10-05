@@ -18,7 +18,7 @@ async function api(path, options = {}) {
 }
 
 function setDefaultDate() {
-  const d = new Date(); d.setDate(d.getDate() + 21);
+  const d = new Date();
   $('departure-date').value = d.toISOString().slice(0, 10);
 }
 
@@ -44,10 +44,9 @@ function updateSearchMode() {
     return;
   }
 
-  const flights = configuredFlightProvider();
-  pill.className = `state-pill ${flights ? 'live' : 'offline'}`;
-  pill.textContent = flights ? `LIVE · ${flights.name.toUpperCase()}` : 'LIVE PROVIDER UNAVAILABLE';
-  if (!button.disabled) button.innerHTML = 'Search live fares <b>→</b>';
+  pill.className = 'state-pill live';
+  pill.textContent = 'LIVE · AUTO ROUTING';
+  if (!button.disabled) button.innerHTML = 'Search live journeys <b>→</b>';
 }
 
 async function loadProviders() {
@@ -98,6 +97,38 @@ function searchPayload(sample = false) {
   };
 }
 
+let suggestionTimer = null;
+
+async function loadSuggestions(inputId, listId) {
+  const input = $(inputId);
+  const list = $(listId);
+  const query = input.value.trim();
+  if (query.length < 2) { list.innerHTML = ''; return; }
+
+  const [railResult, placeResult] = await Promise.allSettled([
+    api(`/rail/stations?q=${encodeURIComponent(query)}`),
+    api(`/places?q=${encodeURIComponent(query)}`),
+  ]);
+
+  const options = [];
+  if (railResult.status === 'fulfilled') {
+    for (const station of railResult.value.results || []) {
+      options.push(`<option value="${escapeHtml(station.crs)}">${escapeHtml(station.name)} · GB rail</option>`);
+    }
+  }
+  if (placeResult.status === 'fulfilled') {
+    for (const place of placeResult.value || []) {
+      options.push(`<option value="${escapeHtml(place.code)}">${escapeHtml(place.name)} · ${escapeHtml(place.kind)}</option>`);
+    }
+  }
+  list.innerHTML = [...new Set(options)].join('');
+}
+
+function queueSuggestions(inputId, listId) {
+  clearTimeout(suggestionTimer);
+  suggestionTimer = setTimeout(() => loadSuggestions(inputId, listId), 250);
+}
+
 async function runSearch(sample = false) {
   const errorBox = $('search-error'); errorBox.classList.add('hidden');
   $('live-search').textContent = sample ? 'Loading sample…' : 'Searching live providers…';
@@ -144,7 +175,11 @@ function renderResults(data) {
 function journeyCard(j, active) {
   const legs = j.legs.map((leg) => `<span class="leg-chip">${leg.mode === 'flight' ? '✈' : leg.mode === 'train' ? '▰' : '●'} ${escapeHtml(leg.origin.code)} → ${escapeHtml(leg.destination.code)}</span>`).join('');
   const emissions = j.total_emissions_kg == null ? '' : `<span>◌ ${escapeHtml(j.total_emissions_kg)}kg CO₂e</span>`;
-  return `<button class="journey-card ${active ? 'active' : ''}" data-id="${escapeHtml(j.id)}"><div class="journey-top"><div><div class="badges">${j.badges.map((b)=>`<span class="badge">${escapeHtml(b)}</span>`).join('')}<span class="badge ${j.price_verified ? 'verified' : 'sample'}">${j.price_verified ? 'verified price' : 'sample price'}</span></div><h3>${escapeHtml(j.label)}</h3></div><div class="price"><strong>${currency(j.total_price,j.currency)}</strong>${j.savings_vs_baseline > 0 ? `<small>save ${currency(j.savings_vs_baseline,j.currency)}</small>` : ''}</div></div><div class="leg-list">${legs}</div><div class="journey-meta"><span>◷ ${duration(j.total_duration_minutes)}</span>${emissions}<span>◇ risk ${j.risk_score}/100</span><span>${escapeHtml(j.source)}</span></div></button>`;
+  const hasPrice = j.total_price != null;
+  const priceText = hasPrice ? currency(j.total_price, j.currency) : 'Fare unavailable';
+  const priceBadge = hasPrice ? (j.price_verified ? 'verified price' : 'sample price') : 'live timetable';
+  const badgeClass = hasPrice && !j.price_verified ? 'sample' : 'verified';
+  return `<button class="journey-card ${active ? 'active' : ''}" data-id="${escapeHtml(j.id)}"><div class="journey-top"><div><div class="badges">${j.badges.map((b)=>`<span class="badge">${escapeHtml(b)}</span>`).join('')}<span class="badge ${badgeClass}">${priceBadge}</span></div><h3>${escapeHtml(j.label)}</h3></div><div class="price"><strong>${priceText}</strong>${j.savings_vs_baseline > 0 ? `<small>save ${currency(j.savings_vs_baseline,j.currency)}</small>` : ''}</div></div><div class="leg-list">${legs}</div><div class="journey-meta"><span>◷ ${duration(j.total_duration_minutes)}</span>${emissions}<span>◇ risk ${j.risk_score}/100</span><span>${escapeHtml(j.source)}</span></div></button>`;
 }
 
 function selectJourney(id) {
@@ -157,8 +192,16 @@ function selectJourney(id) {
 function renderDetail(j) {
   if (!j) { $('journey-detail').innerHTML = ''; return; }
   const riskClass = j.risk_score > 35 ? 'medium' : 'low';
+  const hasPrice = j.total_price != null;
+  const priceText = hasPrice ? currency(j.total_price, j.currency) : 'Fare unavailable';
+  const priceNote = hasPrice
+    ? (j.price_verified ? 'Provider-verified search price' : 'Sample price')
+    : 'Live service data · licensed fare source not connected';
   const booking = j.booking_url ? `<p><a href="${escapeHtml(j.booking_url)}" target="_blank" rel="noopener noreferrer">Check this live price with provider ↗</a></p>` : '';
-  $('journey-detail').innerHTML = `<div class="detail-head"><span class="eyebrow">Selected route</span><span class="risk ${riskClass}">risk ${j.risk_score}/100</span></div><h3>${escapeHtml(j.label)}</h3><div class="detail-price"><strong>${currency(j.total_price,j.currency)}</strong><span>${j.price_verified ? 'Provider-verified search price' : 'Sample price'}</span></div><div>${j.legs.map((leg,index)=>`<div class="timeline-step"><span class="step-number">${index+1}</span><div><strong>${escapeHtml(leg.origin.name)} → ${escapeHtml(leg.destination.name)}</strong><p>${escapeHtml(leg.carrier)}${leg.number ? ` · ${escapeHtml(leg.number)}` : ''} · ${escapeHtml(leg.mode)}</p><small>${fmtTime(leg.depart_at)} → ${new Date(leg.arrive_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`).join('')}</div>${booking}<div class="provenance"><strong>Data provenance</strong><br>${escapeHtml(j.source)}. Live prices may change; revalidate an offer before booking.</div>`;
+  const provenanceNote = hasPrice
+    ? 'Live prices may change; revalidate an offer before booking.'
+    : 'This provider supplies live service data but no ticket fare, so FareSphere does not invent one.';
+  $('journey-detail').innerHTML = `<div class="detail-head"><span class="eyebrow">Selected route</span><span class="risk ${riskClass}">risk ${j.risk_score}/100</span></div><h3>${escapeHtml(j.label)}</h3><div class="detail-price"><strong>${priceText}</strong><span>${priceNote}</span></div><div>${j.legs.map((leg,index)=>`<div class="timeline-step"><span class="step-number">${index+1}</span><div><strong>${escapeHtml(leg.origin.name)} → ${escapeHtml(leg.destination.name)}</strong><p>${escapeHtml(leg.carrier)}${leg.number ? ` · ${escapeHtml(leg.number)}` : ''} · ${escapeHtml(leg.mode)}${leg.platform ? ` · platform ${escapeHtml(leg.platform)}` : ''}</p><small>${fmtTime(leg.depart_at)} → ${new Date(leg.arrive_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}${leg.status ? ` · ${escapeHtml(leg.status)}` : ''}</small></div></div>`).join('')}</div>${booking}<div class="provenance"><strong>Data provenance</strong><br>${escapeHtml(j.source)}. ${provenanceNote}</div>`;
 }
 
 async function loadDepartures() {
@@ -223,8 +266,8 @@ $('sample-search').addEventListener('click',()=>runSearch(true));
 $('swap').addEventListener('click',()=>{const a=$('origin').value;$('origin').value=$('destination').value;$('destination').value=a;updateSearchMode();});
 $('load-departures').addEventListener('click',loadDepartures);
 $('refresh-providers').addEventListener('click',loadProviders);
-$('origin').addEventListener('input',(e)=>{e.target.value=e.target.value.toUpperCase();updateSearchMode();});
-$('destination').addEventListener('input',(e)=>{e.target.value=e.target.value.toUpperCase();updateSearchMode();});
+$('origin').addEventListener('input',()=>{updateSearchMode();queueSuggestions('origin','origin-suggestions');});
+$('destination').addEventListener('input',()=>{updateSearchMode();queueSuggestions('destination','destination-suggestions');});
 $('station').addEventListener('input',(e)=>e.target.value=e.target.value.toUpperCase());
 
 setDefaultDate();setupGlobe();loadProviders();
