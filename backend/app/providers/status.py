@@ -12,7 +12,7 @@ def provider_statuses() -> list[ProviderStatus]:
             kind="flights",
             configured=True,
             supports_live_data=True,
-            purpose="Real-time flight fares, airlines, times and stops displayed inside FareSphere.",
+            purpose="Real-time flight fares displayed inside FareSphere, with metropolitan airport expansion.",
             setup_hint=None,
         ),
         ProviderStatus(
@@ -29,21 +29,19 @@ def provider_statuses() -> list[ProviderStatus]:
         ),
         ProviderStatus(
             id="national-rail",
-            name="National Rail Darwin",
+            name="GB Rail Live",
             kind="rail",
             configured=True,
             supports_live_data=True,
             purpose=(
-                "Live GB departure boards displayed in FareSphere "
+                "Live GB departure boards "
                 + ("directly through Rail Data Marketplace." if settings.national_rail_api_key
-                   else "through the Huxley 2 Community Edition Darwin JSON proxy.")
+                   else "from traini.ac using Darwin forecasts and Network Rail open data.")
             ),
             setup_hint=None,
         ),
     ]
 
-    # Show optional commercial providers only when actually connected, so the
-    # production UI reports active sources rather than a wall of missing keys.
     if settings.skyscanner_api_key:
         statuses.append(
             ProviderStatus(

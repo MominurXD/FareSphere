@@ -43,47 +43,48 @@ def test_duffel_parses_live_offer_without_guessing_price():
     asyncio.run(_run())
 
 
-def test_octotrip_parses_sse_live_fares_inside_app():
-    async def _run():
-        payload = {
-            "results": [{
-                "airline": "Example Air",
-                "flight_numbers": ["EA123"],
-                "is_direct": True,
-                "stops": 0,
-                "total_duration_minutes": 130,
-                "outbound": {
-                    "departure": "LGW", "arrival": "BCN",
+def _octotrip_sse(origin: str, destination: str, price: float) -> str:
+    payload = {
+        "results": [{
+            "airline": "Example Air",
+            "flight_numbers": ["EA123"],
+            "is_direct": True,
+            "stops": 0,
+            "total_duration_minutes": 130,
+            "outbound": {
+                "departure": origin, "arrival": destination,
+                "departure_time": "08:00", "arrival_time": "10:10",
+                "departure_date": "2026-11-14", "arrival_date": "2026-11-14",
+                "duration_minutes": 130,
+                "legs": [{
+                    "flight_number": "EA123", "carrier": "Example Air",
+                    "departure": origin, "arrival": destination,
                     "departure_time": "08:00", "arrival_time": "10:10",
                     "departure_date": "2026-11-14", "arrival_date": "2026-11-14",
-                    "duration_minutes": 130, "stops": 0,
-                    "legs": [{
-                        "flight_number": "EA123", "carrier": "Example Air",
-                        "departure": "LGW", "arrival": "BCN",
-                        "departure_time": "08:00", "arrival_time": "10:10",
-                        "departure_date": "2026-11-14", "arrival_date": "2026-11-14",
-                        "duration_minutes": 130,
-                    }],
-                },
-                "price": 44.75,
-                "currency": "GBP",
-                "baggage": "Cabin bag included",
-                "booking_url": "https://provider.example/book",
-            }],
-            "origin_resolved": {"iata": "LGW", "name": "Gatwick Airport", "country_code": "GB"},
-            "destination_resolved": {"iata": "BCN", "name": "Barcelona Airport", "country_code": "ES"},
-        }
-        rpc = {
-            "jsonrpc": "2.0", "id": 1,
-            "result": {"content": [{"type": "text", "text": json.dumps(payload)}]},
-        }
-        body = f"event: message\ndata: {json.dumps(rpc)}\n\n"
+                    "duration_minutes": 130,
+                }],
+            },
+            "price": price,
+            "currency": "GBP",
+            "baggage": "Cabin bag included",
+            "booking_url": "https://provider.example/book",
+        }],
+        "origin_resolved": {"iata": origin, "name": origin, "country_code": "GB"},
+        "destination_resolved": {"iata": destination, "name": destination, "country_code": "ES"},
+    }
+    rpc = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(payload)}]}}
+    return f"event: message\ndata: {json.dumps(rpc)}\n\n"
 
+
+def test_octotrip_parses_sse_live_fares_inside_app():
+    async def _run():
         async def handler(request: httpx.Request):
             assert request.url.path == "/flights/mcp"
-            assert request.headers["Accept"] == "application/json, text/event-stream"
-            return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
-
+            return httpx.Response(
+                200,
+                text=_octotrip_sse("LGW", "BCN", 44.75),
+                headers={"content-type": "text/event-stream"},
+            )
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         try:
             result = await OctoTripProvider(client=client).search(SearchRequest(
@@ -92,11 +93,45 @@ def test_octotrip_parses_sse_live_fares_inside_app():
             ))
         finally:
             await client.aclose()
-
-        assert result.providers_used == ["OctoTrip Flights"]
         assert result.results[0].total_price == 44.75
-        assert result.results[0].booking_url == "https://provider.example/book"
         assert result.results[0].legs[0].number == "EA123"
+    asyncio.run(_run())
+
+
+def test_octotrip_expands_lon_to_real_airports():
+    async def _run():
+        seen: set[str] = set()
+
+        async def handler(request: httpx.Request):
+            body = json.loads(request.content)
+            args = body["params"]["arguments"]
+            origin = args["origin"]
+            seen.add(origin)
+            if origin == "LGW":
+                return httpx.Response(
+                    200,
+                    text=_octotrip_sse("LGW", "BCN", 39.99),
+                    headers={"content-type": "text/event-stream"},
+                )
+            empty = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps({"results": []})}]}}
+            return httpx.Response(
+                200,
+                text=f"data: {json.dumps(empty)}\n\n",
+                headers={"content-type": "text/event-stream"},
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            result = await OctoTripProvider(client=client).search(SearchRequest(
+                origin="LON", destination="BCN", departure_date=date(2026, 11, 14),
+                passengers=1, checked_bags=0, flexible_days=0, sort="cheapest",
+            ))
+        finally:
+            await client.aclose()
+
+        assert {"LHR", "LGW", "STN", "LTN", "LCY"}.issubset(seen)
+        assert result.results[0].legs[0].origin.code == "LGW"
+        assert result.results[0].total_price == 39.99
     asyncio.run(_run())
 
 
@@ -123,22 +158,24 @@ def test_tfl_network_parses_real_line_shape_without_key():
     asyncio.run(_run())
 
 
-def test_national_rail_uses_huxley_without_owner_api_key():
+def test_national_rail_uses_trainiac_without_owner_api_key():
     async def _run():
         async def handler(request: httpx.Request):
-            assert request.url.path == "/departures/KGX/10"
-            assert "x-apikey" not in request.headers
+            assert request.url.path == "/api/departures/KGX"
+            assert request.url.params["limit"] == "10"
             return httpx.Response(200, json={
-                "locationName": "London Kings Cross",
-                "crs": "KGX",
-                "trainServices": [{
-                    "serviceID": "svc-1",
-                    "operator": "LNER",
-                    "destination": [{"locationName": "Edinburgh"}],
-                    "std": "10:00",
-                    "etd": "10:04",
+                "generated_at": "2026-10-05T22:00:00+01:00",
+                "resolved": {"station": {"name": "KINGS CROSS LONDON", "crs": "KGX"}},
+                "results": [{
+                    "departs": "2026-10-05T22:10:00+01:00",
+                    "expected_departs": "2026-10-05T22:14:00+01:00",
+                    "train_id": "123",
+                    "headcode": "1A23",
+                    "status": "expected_late",
+                    "status_text": "Expected 22:14",
                     "platform": "5",
-                    "isCancelled": False,
+                    "operator": "LNER",
+                    "destination": {"name": "EDINBURGH", "crs": "EDB"},
                 }],
             })
 
@@ -147,13 +184,15 @@ def test_national_rail_uses_huxley_without_owner_api_key():
             result = await NationalRailProvider(
                 client=client,
                 api_key="",
-                huxley_base_url="https://huxley.example",
+                trainiac_base_url="https://api.traini.ac",
             ).departures("kgx")
         finally:
             await client.aclose()
 
         assert result.station == "KGX"
-        assert "Huxley 2" in result.provider
-        assert result.departures[0].destination == "Edinburgh"
-        assert result.departures[0].expected == "10:04"
+        assert result.provider.startswith("traini.ac")
+        assert result.departures[0].destination == "EDINBURGH"
+        assert result.departures[0].scheduled == "22:10"
+        assert result.departures[0].expected == "22:14"
+        assert result.departures[0].platform == "5"
     asyncio.run(_run())

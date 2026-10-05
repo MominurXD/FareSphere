@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
@@ -11,6 +12,23 @@ from app.providers.base import ProviderUnavailable, UnsupportedLiveRequest
 
 
 OCTOTRIP_MCP = "https://mcp.octotrip.app/flights/mcp"
+
+# Metropolitan IATA codes are useful in the FareSphere UI, but some live
+# suppliers only return inventory for concrete airports. Expand the common
+# metro codes and merge the live results back into one list.
+AIRPORT_GROUPS: dict[str, list[str]] = {
+    "LON": ["LHR", "LGW", "STN", "LTN", "LCY"],
+    "PAR": ["CDG", "ORY", "BVA"],
+    "ROM": ["FCO", "CIA"],
+    "MIL": ["MXP", "LIN", "BGY"],
+    "NYC": ["JFK", "EWR", "LGA"],
+    "TYO": ["HND", "NRT"],
+    "CHI": ["ORD", "MDW"],
+    "WAS": ["IAD", "DCA", "BWI"],
+    "BUE": ["EZE", "AEP"],
+    "RIO": ["GIG", "SDU"],
+    "SAO": ["GRU", "CGH", "VCP"],
+}
 
 
 def _parse_datetime(date_value: str | None, time_value: str | None) -> datetime:
@@ -80,6 +98,28 @@ class OctoTripProvider:
     def __init__(self, client: httpx.AsyncClient | None = None):
         self._client = client
 
+    @staticmethod
+    def _pairs(origin: str, destination: str) -> list[tuple[str, str]]:
+        origins = AIRPORT_GROUPS.get(origin, [origin])
+        destinations = AIRPORT_GROUPS.get(destination, [destination])
+
+        if len(origins) == 1 and len(destinations) == 1:
+            return [(origins[0], destinations[0])]
+
+        pairs: list[tuple[str, str]] = []
+        if len(destinations) == 1:
+            pairs = [(airport, destinations[0]) for airport in origins]
+        elif len(origins) == 1:
+            pairs = [(origins[0], airport) for airport in destinations]
+        else:
+            # Keep within OctoTrip's documented burst capacity.
+            for origin_airport in origins:
+                for destination_airport in destinations:
+                    pairs.append((origin_airport, destination_airport))
+                    if len(pairs) == 5:
+                        return pairs
+        return pairs[:5]
+
     async def search(self, request: SearchRequest) -> SearchResponse:
         if request.checked_bags:
             raise UnsupportedLiveRequest(
@@ -90,15 +130,98 @@ class OctoTripProvider:
                 "Flexible-date pricing is not enabled for this live provider. Set flexible_days=0."
             )
 
+        pairs = self._pairs(request.origin.upper(), request.destination.upper())
+        owns = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=45.0)
+
+        try:
+            outcomes = await asyncio.gather(
+                *(self._search_pair(client, request, origin, destination) for origin, destination in pairs),
+                return_exceptions=True,
+            )
+        finally:
+            if owns:
+                await client.aclose()
+
+        journeys: list[Journey] = []
+        errors: list[str] = []
+        for outcome in outcomes:
+            if isinstance(outcome, Exception):
+                errors.append(str(outcome))
+                continue
+            journeys.extend(outcome)
+
+        # Remove duplicate booking results occasionally returned across metro-airport queries.
+        deduped: dict[tuple, Journey] = {}
+        for journey in journeys:
+            first = journey.legs[0]
+            last = journey.legs[-1]
+            key = (
+                first.origin.code,
+                last.destination.code,
+                first.depart_at.isoformat(),
+                journey.label,
+                round(journey.total_price, 2),
+            )
+            current = deduped.get(key)
+            if current is None or journey.total_duration_minutes < current.total_duration_minutes:
+                deduped[key] = journey
+        journeys = list(deduped.values())
+
+        if not journeys:
+            expanded = ", ".join(f"{a}→{b}" for a, b in pairs)
+            detail = f"No live fares were returned after checking {expanded}."
+            if errors:
+                detail += f" Provider detail: {errors[0]}"
+            raise ProviderUnavailable(detail)
+
+        if request.sort == "fastest":
+            journeys.sort(key=lambda item: (item.total_duration_minutes, item.total_price))
+        elif request.sort == "best":
+            cheapest = min(item.total_price for item in journeys) or 1.0
+            fastest = min(item.total_duration_minutes for item in journeys) or 1
+            for item in journeys:
+                item.score = round(
+                    (item.total_price / cheapest) * 0.65
+                    + (item.total_duration_minutes / fastest) * 0.35,
+                    4,
+                )
+            journeys.sort(key=lambda item: item.score)
+        else:
+            journeys.sort(key=lambda item: (item.total_price, item.total_duration_minutes))
+
+        return SearchResponse(
+            origin=journeys[0].legs[0].origin,
+            destination=journeys[0].legs[-1].destination,
+            baseline_price=None,
+            currency=journeys[0].currency,
+            results=journeys[:40],
+            flexible_date_savings=[],
+            generated_at=datetime.now(timezone.utc),
+            data_mode="live",
+            providers_used=["OctoTrip Flights"],
+            notice=(
+                "Real-time fares are supplied by OctoTrip. Metropolitan codes such as LON are expanded "
+                "across their main airports. Prices and booking links are short-lived and should be rechecked."
+            ),
+        )
+
+    async def _search_pair(
+        self,
+        client: httpx.AsyncClient,
+        request: SearchRequest,
+        origin: str,
+        destination: str,
+    ) -> list[Journey]:
         rpc = {
             "jsonrpc": "2.0",
-            "id": 1,
+            "id": f"{origin}-{destination}",
             "method": "tools/call",
             "params": {
                 "name": "search",
                 "arguments": {
-                    "origin": request.origin.upper(),
-                    "destination": request.destination.upper(),
+                    "origin": origin,
+                    "destination": destination,
                     "departure_date": request.departure_date.isoformat(),
                     "adults": request.passengers,
                     "children": 0,
@@ -110,8 +233,6 @@ class OctoTripProvider:
             },
         }
 
-        owns = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=45.0)
         try:
             response = await client.post(
                 OCTOTRIP_MCP,
@@ -127,15 +248,12 @@ class OctoTripProvider:
         except ProviderUnavailable:
             raise
         except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
-            raise ProviderUnavailable(f"OctoTrip live flight search failed: {exc}") from exc
-        finally:
-            if owns:
-                await client.aclose()
+            raise ProviderUnavailable(f"OctoTrip {origin}→{destination} failed: {exc}") from exc
 
         if payload.get("error"):
             error = payload["error"]
             detail = error.get("message") or error.get("suggestion") or "No flight results."
-            raise ProviderUnavailable(detail)
+            raise ProviderUnavailable(f"{origin}→{destination}: {detail}")
 
         origin_resolved = payload.get("origin_resolved") or {}
         destination_resolved = payload.get("destination_resolved") or {}
@@ -147,8 +265,8 @@ class OctoTripProvider:
             legs: list[Leg] = []
 
             for raw in raw_legs:
-                origin_code = str(raw.get("departure") or request.origin.upper())
-                destination_code = str(raw.get("arrival") or request.destination.upper())
+                origin_code = str(raw.get("departure") or origin)
+                destination_code = str(raw.get("arrival") or destination)
                 carrier = raw.get("carrier") or result.get("airline") or "Airline"
                 legs.append(
                     Leg(
@@ -172,7 +290,6 @@ class OctoTripProvider:
                     )
                 )
 
-            # Some results include only an outbound summary; keep them usable.
             if not legs and outbound.get("departure") and outbound.get("arrival"):
                 legs.append(
                     Leg(
@@ -210,7 +327,11 @@ class OctoTripProvider:
                     legs=legs,
                     total_price=price,
                     currency=result.get("currency") or "GBP",
-                    total_duration_minutes=int(result.get("total_duration_minutes") or outbound.get("duration_minutes") or 1),
+                    total_duration_minutes=int(
+                        result.get("total_duration_minutes")
+                        or outbound.get("duration_minutes")
+                        or max(1, int((legs[-1].arrive_at - legs[0].depart_at).total_seconds() // 60))
+                    ),
                     total_emissions_kg=None,
                     risk_score=min(100, 5 + stops * 8),
                     savings_vs_baseline=None,
@@ -223,36 +344,4 @@ class OctoTripProvider:
                 )
             )
 
-        if not journeys:
-            raise ProviderUnavailable("OctoTrip returned no live fares for this route/date.")
-
-        if request.sort == "fastest":
-            journeys.sort(key=lambda item: (item.total_duration_minutes, item.total_price))
-        elif request.sort == "best":
-            cheapest = min(item.total_price for item in journeys) or 1.0
-            fastest = min(item.total_duration_minutes for item in journeys) or 1
-            for item in journeys:
-                item.score = round(
-                    (item.total_price / cheapest) * 0.65
-                    + (item.total_duration_minutes / fastest) * 0.35,
-                    4,
-                )
-            journeys.sort(key=lambda item: item.score)
-        else:
-            journeys.sort(key=lambda item: (item.total_price, item.total_duration_minutes))
-
-        return SearchResponse(
-            origin=journeys[0].legs[0].origin,
-            destination=journeys[0].legs[-1].destination,
-            baseline_price=None,
-            currency=journeys[0].currency,
-            results=journeys,
-            flexible_date_savings=[],
-            generated_at=datetime.utcnow(),
-            data_mode="live",
-            providers_used=["OctoTrip Flights"],
-            notice=(
-                "Real-time fares are supplied by OctoTrip and are typically valid for about 15 minutes. "
-                "Booking links may contain affiliate attribution; FareSphere itself does not sell tickets."
-            ),
-        )
+        return journeys
