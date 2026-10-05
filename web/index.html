@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="FareSphere compares verified travel data and visualises live transport networks." />
+  <title>FareSphere — smarter travel costs</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="FareSphere home"><span class="brand-mark">◎</span><strong>FareSphere</strong><em>beta</em></a>
+      <nav><a href="#results">Routes</a><a href="#rail">Live rail</a><a href="#sources">Sources</a></nav>
+      <div class="nav-actions"><button class="icon-button" id="refresh-providers" title="Refresh data-source status">↻</button><span class="author-chip">Personal project</span></div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <span class="kicker">◆ live-data-first travel search</span>
+          <h1>Find the route that costs <span>less</span>, without fake fares.</h1>
+          <p>FareSphere combines verified travel-provider data with an interactive network globe. If a source is unavailable, it says so instead of inventing a price.</p>
+          <div class="trust-row"><span>✓ Verified-source pricing</span><span>◉ Real line geometry</span><span>↗ Provider-aware routing</span></div>
+        </div>
+
+        <div class="globe-stage">
+          <canvas id="globe" aria-label="Interactive transport network globe"></canvas>
+          <div class="globe-help">Drag to rotate · scroll to zoom</div>
+          <div class="network-status"><span class="pulse"></span><span id="network-status-text">Checking transport network…</span></div>
+        </div>
+
+        <form class="search-card" id="search-form">
+          <div class="card-head"><div><span class="eyebrow">Live journey search</span><h2>Where to next?</h2></div><span id="flight-state" class="state-pill offline">Needs provider</span></div>
+          <div class="route-fields">
+            <label><span>From</span><div class="code-field"><i></i><input id="origin" maxlength="3" value="LON" required /></div><small>IATA city / airport</small></label>
+            <button type="button" class="swap" id="swap" aria-label="Swap origin and destination">⇄</button>
+            <label><span>To</span><div class="code-field"><i></i><input id="destination" maxlength="3" value="BCN" required /></div><small>IATA city / airport</small></label>
+          </div>
+          <div class="search-grid">
+            <label><span>Departure</span><input id="departure-date" type="date" required /></label>
+            <label><span>Travellers</span><select id="passengers"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+            <label><span>Baggage</span><select disabled><option>Included allowance only</option></select></label>
+            <label><span>Rank by</span><select id="sort"><option value="best">Best value</option><option value="cheapest">Lowest live price</option><option value="fastest">Fastest journey</option></select></label>
+          </div>
+          <button class="primary" id="live-search" type="submit">Search live fares <b>→</b></button>
+          <button class="sample-button hidden" id="sample-search" type="button">Preview clearly labelled sample data</button>
+          <div class="form-note">✓ Live mode never substitutes sample prices for unavailable providers.</div>
+          <div class="inline-error hidden" id="search-error"></div>
+        </form>
+      </section>
+
+      <section class="source-bar" id="sources"><div class="source-summary"><strong id="provider-count">0/4</strong><span>providers configured</span></div><div id="provider-items" class="provider-items"></div></section>
+
+      <section class="results hidden" id="results">
+        <div class="section-head"><div><span class="eyebrow" id="results-mode">Verified live results</span><h2 id="route-title">Route results</h2><p id="results-notice"></p></div><span class="data-badge" id="data-badge">LIVE</span></div>
+        <div class="date-strip hidden" id="date-strip"></div>
+        <div class="results-grid"><div><div class="result-meta"><span id="result-count"></span><span id="result-time"></span></div><div class="journey-list" id="journey-list"></div></div><aside class="journey-detail" id="journey-detail"></aside></div>
+      </section>
+
+      <section class="rail-board" id="rail">
+        <div class="rail-copy"><span class="eyebrow">National Rail live board</span><h2>Check real GB departures.</h2><p>Use a three-letter CRS station code. When Rail Data Marketplace is configured, FareSphere displays scheduled and expected times, platforms and cancellations from Darwin.</p><div class="rail-search"><input id="station" maxlength="3" value="KGX" /><button id="load-departures">Load live departures</button></div><div class="inline-error hidden" id="rail-error"></div></div>
+        <div class="departures-panel" id="departures-panel"><div class="empty-state"><span>▥</span><strong>Live rail data appears here</strong><small>No timetable is fabricated when the provider is unavailable.</small></div></div>
+      </section>
+
+      <section class="data-policy">
+        <div><span class="eyebrow">Data integrity</span><h2>Designed to fail honestly.</h2></div>
+        <div class="policy-grid"><article><b>01</b><h3>Verified prices only</h3><p>Live fares come from configured commerce providers. FareSphere does not manufacture a replacement fare.</p></article><article><b>02</b><h3>Live rail context</h3><p>National Rail departures are displayed separately from fare search so timetable data is never mistaken for ticket pricing.</p></article><article><b>03</b><h3>Source provenance</h3><p>Every result records its provider and whether its price is verified or sample data.</p></article></div>
+      </section>
+    </main>
+
+    <footer><div><strong>FareSphere</strong><span>Personal project by Mohammed Mominur Rahman Miah</span></div><div class="attribution">Powered by TfL Open Data where displayed. National Rail data source: Rail Delivery Group / Rail Data Marketplace where displayed. Flight offers: Duffel where configured.</div></footer>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
