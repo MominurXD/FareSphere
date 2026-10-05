@@ -1,110 +1,120 @@
 # FareSphere
 
-**Live-data-first travel search and 3D transport visualisation.**
+**Live-data-first multimodal journey search and 3D transport visualisation.**
 
 Personal project by **Mohammed Mominur Rahman Miah**.
 
-FareSphere is designed around a simple rule: **never present an invented fare as live travel data**. It combines provider-backed flight search, live UK rail information and London network geometry behind one interface, while keeping sample data isolated to an explicitly enabled development mode.
+**Live demo:** https://faresphere-mominur.onrender.com
+
+FareSphere combines flights, London ground transport and live GB rail information in one search interface. Its core rule is simple: **never present invented data as a live fare.**
 
 ## What it does
 
-- Interactive draggable globe with route arcs and transport-network overlays.
-- Live flight-offer search through Duffel when `DUFFEL_ACCESS_TOKEN` is configured.
-- Live TfL Tube / Overground / Elizabeth line / DLR route geometry on the globe when `TFL_APP_KEY` is configured.
-- Live National Rail departure boards through the Rail Data Marketplace when its consumer key and endpoint are configured.
-- Provider-health/status panel so the UI clearly shows which sources are actually connected.
-- Provenance on journey results (`source`, live/sample mode, verified-price flag).
-- Explicit failure when a live source is unavailable; live search does **not** fall back to demonstration prices.
-- Development-only sample search for UI demonstrations, disabled by default.
-- Custom dependency-free canvas globe with pointer rotation and zoom.
-- Docker Compose deployment and automated backend/web tests.
+- Unified search for flights, TfL journeys and GB rail journeys.
+- Automatic routing based on the origin/destination entered.
+- Live TfL journey planning with quoted fares when TfL supplies them.
+- Live GB rail routes, operators, headcodes, expected times, platforms, delays and connections.
+- Live GB rail departure board.
+- Live flight prices displayed directly inside FareSphere.
+- London metro-airport expansion for codes such as `LON`.
+- London terminal routing, so searches such as `LON → PAD` are treated as ground journeys rather than invalid flights.
+- GB rail station suggestions using station names or CRS codes.
+- Interactive draggable globe with journey arcs and TfL network overlays.
+- Explicit provider provenance and live/sample separation.
+- Docker deployment and automated CI.
+
+## Example searches
+
+| Search | Routed to |
+| --- | --- |
+| `LON → BCN` | Live flight provider |
+| `LON → LHR` | TfL Journey Planner + quoted fare |
+| `LON → PAD` | TfL Journey Planner via London Paddington stop resolution |
+| `EUS → MAN` | Live GB rail journey data |
+| `KGX` in the rail board | Live GB departures |
 
 ## Data-integrity rules
 
-FareSphere intentionally refuses to guess data that should come from a transport provider.
+FareSphere deliberately fails closed when a provider does not supply a field.
 
-1. **No fake live prices.** If Duffel is not configured, `/api/v1/search` returns an unavailable-provider response.
-2. **No guessed baggage charges.** Current live flight search supports included allowance only. Requests asking FareSphere to price additional checked baggage are rejected until ancillary pricing is integrated.
-3. **No synthetic flexible-date pricing in live mode.** Adjacent-date sample prices exist only in the development sample endpoint.
-4. **Rail departures are not rail fares.** Darwin departure-board data is used for live running information; it is never treated as a ticket price.
-5. **Commercial rail fares require a licensed commerce source.** Trainline Partner Solutions is represented by a contract-gated adapter boundary; no scraping or undocumented endpoint guessing is used.
-6. **Booking-time revalidation is required.** Airline offers can change or expire, so a production booking flow must re-fetch a selected offer before purchase.
+1. **No fake live prices.** Missing prices remain unavailable.
+2. **No £0 rail fares.** Operational rail data is not treated as ticket pricing.
+3. **No guessed baggage charges.**
+4. **No synthetic flexible-date savings in live mode.**
+5. **Provider provenance stays attached to results.**
+6. **Flight prices should be revalidated before booking.**
+7. **Licensed rail fares are still required for true cross-modal price comparison.**
 
-## Current live integrations
+## Current integrations
 
-| Source | Purpose | Repository status | Access needed |
-| --- | --- | --- | --- |
-| Duffel | Live flight offers and search-time prices | Implemented | Access token |
-| Transport for London Unified API | London network/line geometry | Implemented | TfL app key |
-| National Rail Darwin via Rail Data Marketplace | Live GB departures/platforms/cancellations | Implemented | RDM consumer key + subscribed endpoint |
-| Trainline Partner Solutions | UK/European rail fares/retailing | Adapter boundary only | Commercial partner approval + official integration docs |
+| Source | Purpose | Availability |
+| --- | --- | --- |
+| OctoTrip Flights | Real-time flight search/prices inside FareSphere | Keyless default flight provider |
+| Transport for London Unified API | Journey planning, quoted fares, stop resolution and network geometry | Anonymous access; app key optional |
+| traini.ac v1 | Live GB rail journeys, station lookup, platforms, delays and departure boards | Keyless public API |
+| Rail Data Marketplace / National Rail Darwin | Optional direct live departure-board source | Consumer key optional |
+| Duffel | Optional commercial flight offers | Access token optional |
+| Skyscanner Flights Live Prices | Optional commercial flight pricing | Approved API key optional |
+| Trainline Partner Solutions | Future licensed rail commerce/fares | Commercial partner access required |
 
-The project does not claim complete cross-modal fare optimisation until a licensed rail-fare provider is connected. That is deliberate: accurate savings require comparable, verified prices from every priced leg.
+## How routing works
 
-## Architecture
+FareSphere's FastAPI backend classifies each request before calling a provider:
 
-```text
-Browser (HTML/CSS/JS + canvas globe)
-              |
-              v
-         FastAPI API
-          /   |   \
-         /    |    \
-    Duffel   TfL   National Rail
-   flights  lines    Darwin
-              |
-       provider provenance
-              |
-       verified UI results
-```
+1. London city/airport pairs use TfL Journey Planner.
+2. London city/airport + a resolved London rail terminal also uses TfL.
+3. Two resolved GB rail endpoints use the live GB rail provider.
+4. Remaining three-letter routes are treated as flights.
 
-See [`docs/architecture.md`](docs/architecture.md) for more detail.
+This prevents cases such as `LON → PAD` from being expanded into nonsense flight searches like `LHR → PAD`.
 
-## Run the verified local application
+## Current rail-fare limitation
 
-### 1. Create configuration
+The keyless GB rail source provides live operational journey information but **not ticket fares**. FareSphere therefore displays **Fare unavailable** instead of inventing a price.
+
+Currently supported for GB rail:
+
+- live station lookup;
+- same-day journey routing;
+- operators and train headcodes;
+- scheduled/expected times;
+- platforms and delays;
+- connection information;
+- live departure boards.
+
+A licensed National Rail/rail-commerce fare source is still required for ticket prices and complete future-date rail fare comparison.
+
+## Run locally
+
+Copy the example environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Add whichever live-provider credentials you have. Sample data remains disabled unless you explicitly set:
-
-```env
-ENABLE_SAMPLE_DATA=true
-```
-
-### 2. Docker
+Then run with Docker:
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+Open `http://localhost:5173`.
 
-```text
-http://localhost:5173
+The FastAPI documentation is available at `http://localhost:8000/docs`.
+
+## Optional provider credentials
+
+```env
+TFL_APP_KEY=
+NATIONAL_RAIL_API_KEY=
+NATIONAL_RAIL_DEPARTURES_URL=
+DUFFEL_ACCESS_TOKEN=
+SKYSCANNER_API_KEY=
+TRAINLINE_API_BASE_URL=
+TRAINLINE_API_TOKEN=
 ```
 
-API documentation:
-
-```text
-http://localhost:8000/docs
-```
-
-### Backend-only development
-
-The FastAPI process also serves the static web client when the repository is run directly:
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-PYTHONPATH=. uvicorn app.main:app --reload
-```
-
-Open `http://localhost:8000`.
+Credentials are server-side only and must never be committed.
 
 ## Tests
 
@@ -116,65 +126,24 @@ cd ..
 node --check web/app.js
 node --test web/tests/*.test.mjs
 python scripts/validate_static.py
+docker build -t faresphere-ci .
 ```
 
-The provider tests use recorded provider-shaped responses through `httpx.MockTransport`. They verify parsing, request headers, data provenance, no-live-provider failure behaviour and the custom globe geometry without pretending that a network-isolated CI runner is a live provider.
+CI validates the backend, frontend JavaScript, globe geometry, static UI and production Docker image. Regression tests cover London airport transfers, `LON → PAD`, metropolitan flight expansion and GB rail parsing.
 
-## Provider setup
+## Deployment
 
-### TfL
+Public deployment:
 
-Create a TfL Unified API key and set:
+https://faresphere-mominur.onrender.com
 
-```env
-TFL_APP_KEY=...
-```
+Health endpoint:
 
-FareSphere uses the official Line API to load current Tube, Overground, Elizabeth line and DLR route sequences.
-
-### National Rail
-
-Register with the Rail Data Marketplace and subscribe to the **Live Departure Board** data product. Set the consumer key and the exact endpoint shown in the subscription's Specification tab:
-
-```env
-NATIONAL_RAIL_API_KEY=...
-NATIONAL_RAIL_DEPARTURES_URL=https://api1.raildata.org.uk/<your-product-path>/LDBWS/api/20220120/GetDepBoardWithDetails/{crs}
-```
-
-### Duffel
-
-Set a server-side access token:
-
-```env
-DUFFEL_ACCESS_TOKEN=...
-```
-
-Never put a Duffel access token in browser JavaScript or a public repository.
-
-### Trainline Partner Solutions
-
-Trainline rail-commerce data is a partner product. If access is approved, keep the official base URL/token server-side:
-
-```env
-TRAINLINE_API_BASE_URL=...
-TRAINLINE_API_TOKEN=...
-```
-
-The repository intentionally does not scrape Trainline or implement guessed private endpoints.
+`/api/v1/health`
 
 ## Attribution and independence
 
-FareSphere is an independent personal project and is not affiliated with or endorsed by any transport provider.
-
-- **Powered by TfL Open Data** where TfL data is displayed. Contains OS data © Crown copyright and database rights; applicable TfL/OS attribution requirements should be checked against the current TfL data licence before public production deployment.
-- National Rail live data, where configured, is sourced from Rail Delivery Group / Rail Data Marketplace and must be displayed in accordance with the subscribed product's licence and National Rail developer/brand guidelines.
-- Duffel is identified as the source when Duffel flight offers are displayed.
-
-See [`docs/data-sources.md`](docs/data-sources.md).
-
-## Release status
-
-The codebase is **not considered live-data release-ready until the intended production provider credentials have been configured and the release checklist has been run against those providers**. See [`docs/release-checklist.md`](docs/release-checklist.md).
+FareSphere is an independent personal project and is not affiliated with or endorsed by its data providers. Third-party transport data and booking links remain subject to the relevant provider terms and licences.
 
 ## Licence
 
