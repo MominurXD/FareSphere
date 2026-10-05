@@ -374,3 +374,65 @@ def test_national_rail_station_search_and_live_journey_have_no_fake_fare():
         assert result.results[0].legs[0].number == "1H01"
         assert "Fare not supplied" in result.results[0].badges
     asyncio.run(_run())
+
+
+def test_tfl_resolves_paddington_and_prices_lon_to_pad():
+    async def _run():
+        async def handler(request: httpx.Request):
+            if request.url.path.startswith("/StopPoint/Search/"):
+                assert "London%20Paddington" in str(request.url)
+                return httpx.Response(200, json={
+                    "query": "London Paddington",
+                    "matches": [
+                        {"id": "HUBPAD", "name": "London Paddington Rail Station", "lat": 51.5154, "lon": -0.1755},
+                        {"id": "OUTSIDE", "name": "Paddington", "lat": 52.2, "lon": -1.0},
+                    ],
+                })
+
+            assert request.url.path.startswith("/Journey/JourneyResults/")
+            return httpx.Response(200, json={
+                "journeys": [{
+                    "duration": 18,
+                    "fare": {"totalCost": 290, "fares": [{"cost": 290}]},
+                    "legs": [{
+                        "departureTime": "2026-10-05T09:00:00+01:00",
+                        "arrivalTime": "2026-10-05T09:18:00+01:00",
+                        "departurePoint": {"commonName": "Westminster", "lat": 51.5007, "lon": -0.1246},
+                        "arrivalPoint": {"commonName": "London Paddington Rail Station", "lat": 51.5154, "lon": -0.1755},
+                        "mode": {"id": "tube", "name": "tube"},
+                        "routeOptions": [{"name": "Circle line"}],
+                    }],
+                }]
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        provider = TfLJourneyProvider(client=client, app_key="")
+        try:
+            paddington = await provider.resolve_london_rail_station({
+                "type": "station",
+                "crs": "PAD",
+                "name": "London Paddington",
+            })
+            assert paddington is not None
+            assert paddington.code == "PAD"
+            result = await provider.search(
+                SearchRequest(
+                    origin="LON",
+                    destination="PAD",
+                    departure_date=date(2026, 10, 5),
+                    departure_time="09:00",
+                    passengers=1,
+                    checked_bags=0,
+                    flexible_days=0,
+                    sort="best",
+                ),
+                destination_override=paddington,
+            )
+        finally:
+            await client.aclose()
+
+        assert result.destination.code == "PAD"
+        assert result.results[0].total_price == 2.90
+        assert result.results[0].label == "Circle line"
+        assert result.results[0].price_verified is True
+    asyncio.run(_run())

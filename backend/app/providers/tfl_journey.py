@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
@@ -120,6 +121,14 @@ def _route_name(leg: dict) -> str:
     return str(mode.get("name") or mode.get("id") or "TfL")
 
 
+def _normalise_name(value: str) -> str:
+    return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+def _within_london(lat: float | None, lon: float | None) -> bool:
+    return lat is not None and lon is not None and 51.25 <= float(lat) <= 51.75 and -0.60 <= float(lon) <= 0.35
+
+
 class TfLJourneyProvider:
     name = "Transport for London Journey Planner"
 
@@ -127,14 +136,80 @@ class TfLJourneyProvider:
         self._client = client
         self.app_key = settings.tfl_app_key if app_key is None else app_key
 
-    async def search(self, request: SearchRequest) -> SearchResponse:
+    async def resolve_london_rail_station(self, station: dict) -> Place | None:
+        """Resolve a GB rail station to a TfL stop point when it is in London."""
+        crs = str(station.get("crs") or "").upper()
+        name = str(station.get("name") or crs).strip()
+        if not name:
+            return None
+
+        params = {
+            "modes": "tube,overground,elizabeth-line,dlr,national-rail",
+            "maxResults": 12,
+            "includeHubs": "true",
+            "tflOperatedNationalRailStationsOnly": "false",
+        }
+        if self.app_key:
+            params["app_key"] = self.app_key
+
+        owns = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=20.0)
+        try:
+            response = await client.get(
+                f"{TFL_API}/StopPoint/Search/{quote(name, safe='')}",
+                params=params,
+                headers={"Accept": "application/json", "User-Agent": "FareSphere/1.0"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPError:
+            return None
+        finally:
+            if owns:
+                await client.aclose()
+
+        matches = payload.get("matches") or []
+        if not matches:
+            return None
+
+        target = _normalise_name(name)
+        candidates = [
+            item for item in matches
+            if _within_london(item.get("lat"), item.get("lon"))
+        ]
+        if not candidates:
+            return None
+
+        def score(item: dict) -> tuple[int, int]:
+            candidate = _normalise_name(str(item.get("name") or ""))
+            exactish = 0 if target and (target in candidate or candidate in target) else 1
+            return (exactish, len(candidate))
+
+        best = sorted(candidates, key=score)[0]
+        return Place(
+            code=crs or _code(best.get("name")),
+            name=str(best.get("name") or name),
+            country="GB",
+            lat=float(best["lat"]),
+            lon=float(best["lon"]),
+            kind="station",
+        )
+
+    async def search(
+        self,
+        request: SearchRequest,
+        *,
+        origin_override: Place | None = None,
+        destination_override: Place | None = None,
+    ) -> SearchResponse:
         origin_code = request.origin.upper()
         destination_code = request.destination.upper()
-        if not is_london_ground_journey(origin_code, destination_code):
+
+        origin = origin_override or LONDON_PLACES.get(origin_code)
+        destination = destination_override or LONDON_PLACES.get(destination_code)
+        if origin is None or destination is None:
             raise UnsupportedLiveRequest("This route is not a London-area ground journey.")
 
-        origin = LONDON_PLACES[origin_code]
-        destination = LONDON_PLACES[destination_code]
         from_value = f"{origin.lat},{origin.lon}"
         to_value = f"{destination.lat},{destination.lon}"
 
@@ -281,8 +356,8 @@ class TfLJourneyProvider:
             journeys.sort(key=lambda item: item.score)
 
         notice_parts = [
-            f"{origin_code} is interpreted as {origin.name}." if origin_code == "LON" else "",
-            f"{destination_code} is interpreted as {destination.name}." if destination_code == "LON" else "",
+            f"{request.origin} is interpreted as {origin.name}." if origin.name.lower() != request.origin.lower() else "",
+            f"{request.destination} is interpreted as {destination.name}." if destination.name.lower() != request.destination.lower() else "",
             (
                 f"TfL quoted fares for a {request.departure_time} departure on "
                 f"{request.departure_date.isoformat()}; the card total is for {request.passengers} traveller"
