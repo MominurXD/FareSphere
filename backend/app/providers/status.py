@@ -5,24 +5,15 @@ from app.models import ProviderStatus
 
 
 def provider_statuses() -> list[ProviderStatus]:
-    return [
+    statuses = [
         ProviderStatus(
-            id="skyscanner",
-            name="Skyscanner Flights Live Prices",
+            id="octotrip",
+            name="OctoTrip Flights",
             kind="flights",
-            configured=bool(settings.skyscanner_api_key),
+            configured=True,
             supports_live_data=True,
-            purpose="Real-time flight prices across Skyscanner supply partners.",
-            setup_hint=None if settings.skyscanner_api_key else "Set SKYSCANNER_API_KEY from an approved Skyscanner partner account.",
-        ),
-        ProviderStatus(
-            id="duffel",
-            name="Duffel",
-            kind="flights",
-            configured=bool(settings.duffel_access_token),
-            supports_live_data=True,
-            purpose="Live airline offers and search-time flight prices.",
-            setup_hint=None if settings.duffel_access_token else "Set DUFFEL_ACCESS_TOKEN on the backend.",
+            purpose="Real-time flight fares, airlines, times and stops displayed inside FareSphere.",
+            setup_hint=None,
         ),
         ProviderStatus(
             id="tfl",
@@ -32,34 +23,61 @@ def provider_statuses() -> list[ProviderStatus]:
             supports_live_data=True,
             purpose=(
                 "Live official London network/line geometry. "
-                + ("Authenticated TfL quota enabled." if settings.tfl_app_key else "Using TfL anonymous access (50 requests/minute limit).")
+                + ("Authenticated TfL quota enabled." if settings.tfl_app_key else "Using TfL anonymous access.")
             ),
-            setup_hint=None if settings.tfl_app_key else "Optional: set TFL_APP_KEY for a higher subscribed TfL request quota.",
+            setup_hint=None,
         ),
         ProviderStatus(
             id="national-rail",
-            name="National Rail Darwin / Rail Data Marketplace",
+            name="National Rail Darwin",
             kind="rail",
-            configured=bool(settings.national_rail_api_key),
+            configured=True,
             supports_live_data=True,
-            purpose="Live GB rail departures, expected times, platforms and cancellations.",
-            setup_hint=(
-                None
-                if settings.national_rail_api_key
-                else "Add the free Live Departure Board consumer key as NATIONAL_RAIL_API_KEY."
+            purpose=(
+                "Live GB departure boards displayed in FareSphere "
+                + ("directly through Rail Data Marketplace." if settings.national_rail_api_key
+                   else "through the Huxley 2 Community Edition Darwin JSON proxy.")
             ),
-        ),
-        ProviderStatus(
-            id="trainline",
-            name="Trainline Partner Solutions",
-            kind="rail-commerce",
-            configured=bool(settings.trainline_api_base_url and settings.trainline_api_token),
-            supports_live_data=True,
-            purpose="Commercial UK/European rail search and fares when partner access is approved.",
-            setup_hint=(
-                None
-                if settings.trainline_api_base_url and settings.trainline_api_token
-                else "Requires a Trainline Partner Solutions distribution agreement / Global API access."
-            ),
+            setup_hint=None,
         ),
     ]
+
+    # Show optional commercial providers only when actually connected, so the
+    # production UI reports active sources rather than a wall of missing keys.
+    if settings.skyscanner_api_key:
+        statuses.append(
+            ProviderStatus(
+                id="skyscanner",
+                name="Skyscanner Flights Live Prices",
+                kind="flights",
+                configured=True,
+                supports_live_data=True,
+                purpose="Approved Skyscanner live flight-pricing integration.",
+                setup_hint=None,
+            )
+        )
+    if settings.duffel_access_token:
+        statuses.append(
+            ProviderStatus(
+                id="duffel",
+                name="Duffel",
+                kind="flights",
+                configured=True,
+                supports_live_data=True,
+                purpose="Live airline offers and search-time flight prices.",
+                setup_hint=None,
+            )
+        )
+    if settings.trainline_api_base_url and settings.trainline_api_token:
+        statuses.append(
+            ProviderStatus(
+                id="trainline",
+                name="Trainline Partner Solutions",
+                kind="rail-commerce",
+                configured=True,
+                supports_live_data=True,
+                purpose="Commercial UK/European rail fares via approved partner access.",
+                setup_hint=None,
+            )
+        )
+    return statuses

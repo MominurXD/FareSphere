@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from app.core.config import settings
 from app.models import SearchRequest, SearchResponse
-from app.providers.base import ProviderNotConfigured
 from app.providers.duffel import DuffelProvider
+from app.providers.octotrip import OctoTripProvider
 from app.providers.skyscanner import SkyscannerProvider
 
 
 async def search_live(request: SearchRequest) -> SearchResponse:
-    # Prefer Skyscanner when approved partner access is configured; otherwise
-    # use Duffel. Never substitute sample data for a missing live provider.
+    # Use configured commercial providers when the owner explicitly adds one.
+    # Otherwise OctoTrip provides real-time in-app fares with no API key.
     if settings.skyscanner_api_key:
         return await SkyscannerProvider().search(request)
     if settings.duffel_access_token:
         return await DuffelProvider().search(request)
-    raise ProviderNotConfigured(
-        "No live flight-pricing credential is configured. Add SKYSCANNER_API_KEY or DUFFEL_ACCESS_TOKEN."
-    )
+    return await OctoTripProvider().search(request)

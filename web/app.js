@@ -38,7 +38,7 @@ async function loadProviders() {
     const flights = configuredFlightProvider();
     $('live-search').disabled = false;
     $('flight-state').className = `state-pill ${flights ? 'live' : 'offline'}`;
-    $('flight-state').textContent = flights ? `LIVE · ${flights.id === 'skyscanner' ? 'SKYSCANNER' : 'DUFFEL'}` : 'EXTERNAL LIVE SEARCH';
+    $('flight-state').textContent = flights ? `LIVE · ${flights.name.toUpperCase()}` : 'LIVE PROVIDER UNAVAILABLE';
     $('sample-search').classList.toggle('hidden', !health.sample_data_enabled);
 
     const tfl = providers.find((p) => p.id === 'tfl');
@@ -75,24 +75,8 @@ function searchPayload(sample = false) {
   };
 }
 
-function openExternalFlightSearch() {
-  const payload = searchPayload(false);
-  const date = payload.departure_date.replaceAll('-', '').slice(2);
-  const origin = encodeURIComponent(payload.origin.toLowerCase());
-  const destination = encodeURIComponent(payload.destination.toLowerCase());
-  const url = `https://www.skyscanner.net/transport/flights/${origin}/${destination}/${date}/?adultsv2=${payload.passengers}&cabinclass=economy&rtn=0&currency=GBP&locale=en-GB&market=UK`;
-  window.open(url, '_blank', 'noopener,noreferrer');
-  const box = $('search-error');
-  box.textContent = 'FareSphere opened a real Skyscanner search in a new tab. To display verified prices inside FareSphere itself, connect a Skyscanner or Duffel API credential.';
-  box.classList.remove('hidden');
-}
-
 async function runSearch(sample = false) {
   const errorBox = $('search-error'); errorBox.classList.add('hidden');
-  if (!sample && !configuredFlightProvider()) {
-    openExternalFlightSearch();
-    return;
-  }
   $('live-search').textContent = sample ? 'Loading sample…' : 'Searching live providers…';
   try {
     const data = await api(sample ? '/sample/search' : '/search', {
@@ -154,19 +138,9 @@ function renderDetail(j) {
   $('journey-detail').innerHTML = `<div class="detail-head"><span class="eyebrow">Selected route</span><span class="risk ${riskClass}">risk ${j.risk_score}/100</span></div><h3>${escapeHtml(j.label)}</h3><div class="detail-price"><strong>${currency(j.total_price,j.currency)}</strong><span>${j.price_verified ? 'Provider-verified search price' : 'Sample price'}</span></div><div>${j.legs.map((leg,index)=>`<div class="timeline-step"><span class="step-number">${index+1}</span><div><strong>${escapeHtml(leg.origin.name)} → ${escapeHtml(leg.destination.name)}</strong><p>${escapeHtml(leg.carrier)}${leg.number ? ` · ${escapeHtml(leg.number)}` : ''} · ${escapeHtml(leg.mode)}</p><small>${fmtTime(leg.depart_at)} → ${new Date(leg.arrive_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</small></div></div>`).join('')}</div>${booking}<div class="provenance"><strong>Data provenance</strong><br>${escapeHtml(j.source)}. Live prices may change; revalidate an offer before booking.</div>`;
 }
 
-function nationalRailUrl(crs) {
-  return `https://www.nationalrail.co.uk/live-trains/?live_trains_finder_type=departures&live_trains_origin=${encodeURIComponent(crs)}`;
-}
-
 async function loadDepartures() {
   const errorBox = $('rail-error'); errorBox.classList.add('hidden');
   const crs = $('station').value.trim().toUpperCase();
-  const rail = state.providers.find((p) => p.id === 'national-rail');
-  if (!rail?.configured) {
-    errorBox.innerHTML = `National Rail API access needs a free Rail Data Marketplace consumer key. <a href="${nationalRailUrl(crs)}" target="_blank" rel="noopener noreferrer">Open the official live board instead ↗</a>`;
-    errorBox.classList.remove('hidden');
-    return;
-  }
   try {
     const data = await api(`/rail/departures/${encodeURIComponent(crs)}`);
     $('departures-panel').innerHTML = `<div class="departure-head"><strong>${escapeHtml(data.station)}</strong><span>LIVE · ${escapeHtml(data.provider)}</span></div>${data.departures.length ? data.departures.map((d)=>`<div class="departure-row"><div><strong class="time">${escapeHtml(d.scheduled || '—')}</strong><small>${d.cancelled ? 'Cancelled' : d.expected && d.expected !== d.scheduled ? `Expected ${escapeHtml(d.expected)}` : 'On time / no update'}</small></div><div><strong>${escapeHtml(d.destination)}</strong><small>${escapeHtml(d.operator || 'Rail service')}</small></div><span>${d.cancelled ? 'Cancelled' : d.platform ? `Plat ${escapeHtml(d.platform)}` : 'Platform —'}</span></div>`).join('') : '<div class="empty-state"><strong>No departures returned</strong></div>'}`;
