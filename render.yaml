@@ -3,7 +3,7 @@ services:
     name: faresphere-mominur
     runtime: docker
     region: frankfurt
-    plan: 0.5c-512mb
+    plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/v1/health
@@ -11,15 +11,3 @@ services:
     envVars:
       - key: ENABLE_SAMPLE_DATA
         value: "false"
-      - key: DUFFEL_ACCESS_TOKEN
-        sync: false
-      - key: TFL_APP_KEY
-        sync: false
-      - key: NATIONAL_RAIL_API_KEY
-        sync: false
-      - key: NATIONAL_RAIL_DEPARTURES_URL
-        sync: false
-      - key: TRAINLINE_API_BASE_URL
-        sync: false
-      - key: TRAINLINE_API_TOKEN
-        sync: false
