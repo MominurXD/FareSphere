@@ -37,3 +37,6 @@ jobs:
 
       - name: Validate static UI
         run: python scripts/validate_static.py
+
+      - name: Verify production Docker image builds
+        run: docker build -t faresphere-ci .
