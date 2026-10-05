@@ -143,7 +143,7 @@ class TfLJourneyProvider:
             "time": request.departure_time.replace(":", ""),
             "timeIs": "departing",
             "journeyPreference": "leasttime",
-            "mode": "public-bus,overground,train,tube,dlr,walking",
+            "mode": "bus,tube,overground,elizabeth-line,dlr,tram,national-rail,walking",
             "nationalSearch": "true",
             "useRealTimeLiveArrivals": "true",
         }

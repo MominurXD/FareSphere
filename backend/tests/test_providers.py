@@ -148,6 +148,10 @@ def test_tfl_journey_parses_real_fare_and_multiplies_travellers():
             assert request.url.path.startswith("/Journey/JourneyResults/")
             assert request.url.params["date"] == "20261026"
             assert request.url.params["time"] == "0900"
+            modes = request.url.params["mode"].split(",")
+            assert "public-bus" not in modes
+            assert "train" not in modes
+            assert {"bus", "tube", "elizabeth-line", "national-rail", "walking"}.issubset(set(modes))
             return httpx.Response(200, json={
                 "journeys": [{
                     "startDateTime": "2026-10-26T09:00:00",
