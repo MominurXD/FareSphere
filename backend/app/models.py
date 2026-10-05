@@ -64,6 +64,7 @@ class Journey(BaseModel):
     price_verified: bool
     source: str
     source_offer_id: str | None = None
+    booking_url: str | None = None
 
 
 class SearchResponse(BaseModel):

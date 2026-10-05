@@ -7,6 +7,15 @@ from app.models import ProviderStatus
 def provider_statuses() -> list[ProviderStatus]:
     return [
         ProviderStatus(
+            id="skyscanner",
+            name="Skyscanner Flights Live Prices",
+            kind="flights",
+            configured=bool(settings.skyscanner_api_key),
+            supports_live_data=True,
+            purpose="Real-time flight prices across Skyscanner supply partners.",
+            setup_hint=None if settings.skyscanner_api_key else "Set SKYSCANNER_API_KEY from an approved Skyscanner partner account.",
+        ),
+        ProviderStatus(
             id="duffel",
             name="Duffel",
             kind="flights",
@@ -31,13 +40,13 @@ def provider_statuses() -> list[ProviderStatus]:
             id="national-rail",
             name="National Rail Darwin / Rail Data Marketplace",
             kind="rail",
-            configured=bool(settings.national_rail_api_key and settings.national_rail_departures_url),
+            configured=bool(settings.national_rail_api_key),
             supports_live_data=True,
             purpose="Live GB rail departures, expected times, platforms and cancellations.",
             setup_hint=(
                 None
-                if settings.national_rail_api_key and settings.national_rail_departures_url
-                else "Subscribe to Live Departure Board in Rail Data Marketplace and set NATIONAL_RAIL_API_KEY and NATIONAL_RAIL_DEPARTURES_URL."
+                if settings.national_rail_api_key
+                else "Add the free Live Departure Board consumer key as NATIONAL_RAIL_API_KEY."
             ),
         ),
         ProviderStatus(

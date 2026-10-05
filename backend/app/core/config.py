@@ -17,11 +17,17 @@ class Settings:
     api_prefix: str = os.getenv("API_PREFIX", "/api/v1")
     frontend_origin: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 
-    # Live providers. Credentials stay server-side and must never be exposed to Vite.
+    # Live providers. Credentials stay server-side and must never be exposed to browser code.
     duffel_access_token: str = os.getenv("DUFFEL_ACCESS_TOKEN", "").strip()
+    skyscanner_api_key: str = os.getenv("SKYSCANNER_API_KEY", "").strip()
     tfl_app_key: str = os.getenv("TFL_APP_KEY", "").strip()
+
     national_rail_api_key: str = os.getenv("NATIONAL_RAIL_API_KEY", "").strip()
-    national_rail_departures_url: str = os.getenv("NATIONAL_RAIL_DEPARTURES_URL", "").strip()
+    national_rail_departures_url: str = os.getenv(
+        "NATIONAL_RAIL_DEPARTURES_URL",
+        "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120/GetDepBoardWithDetails/{crs}",
+    ).strip()
+
     trainline_api_base_url: str = os.getenv("TRAINLINE_API_BASE_URL", "").strip()
     trainline_api_token: str = os.getenv("TRAINLINE_API_TOKEN", "").strip()
 
