@@ -67,9 +67,10 @@ def test_duffel_parses_live_offer_without_guessing_price():
     asyncio.run(_run())
 
 
-def test_tfl_network_parses_real_line_shape():
+def test_tfl_network_parses_real_line_shape_without_key():
     async def _run():
         async def handler(request: httpx.Request):
+            assert "app_key" not in request.url.params
             if request.url.path == "/Line/Mode/tube,overground,elizabeth-line,dlr":
                 return httpx.Response(200, json=[{"id": "central", "name": "Central"}])
             if request.url.path == "/Line/central/Route/Sequence/all":
@@ -91,7 +92,7 @@ def test_tfl_network_parses_real_line_shape():
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.tfl.gov.uk")
         try:
-            result = await TfLProvider(client=client, app_key="test-key").network()
+            result = await TfLProvider(client=client, app_key="").network()
         finally:
             await client.aclose()
 
@@ -101,6 +102,30 @@ def test_tfl_network_parses_real_line_shape():
         assert result.paths[0].color == "#E32017"
         assert len(result.paths[0].points) == 2
 
+    asyncio.run(_run())
+
+
+def test_tfl_adds_key_when_configured():
+    async def _run():
+        async def handler(request: httpx.Request):
+            assert request.url.params.get("app_key") == "test-key"
+            if request.url.path == "/Line/Mode/tube,overground,elizabeth-line,dlr":
+                return httpx.Response(200, json=[{"id": "central"}])
+            return httpx.Response(
+                200,
+                json={
+                    "lineName": "Central",
+                    "stopPointSequences": [{"stopPoint": [
+                        {"id": "a", "name": "A", "lat": 51.5, "lon": -0.2},
+                        {"id": "b", "name": "B", "lat": 51.51, "lon": -0.1},
+                    ]}],
+                },
+            )
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.tfl.gov.uk")
+        try:
+            await TfLProvider(client=client, app_key="test-key").network()
+        finally:
+            await client.aclose()
     asyncio.run(_run())
 
 

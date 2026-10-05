@@ -7,7 +7,7 @@ import httpx
 
 from app.core.config import settings
 from app.models import NetworkPath, NetworkPoint, NetworkResponse
-from app.providers.base import ProviderNotConfigured, ProviderUnavailable
+from app.providers.base import ProviderUnavailable
 
 
 TFL_API = "https://api.tfl.gov.uk"
@@ -35,18 +35,24 @@ LINE_COLORS = {
 
 
 class TfLProvider:
+    """Official TfL Unified API adapter.
+
+    TfL currently permits anonymous API access at a limited request rate.
+    TFL_APP_KEY remains optional and can be supplied for a higher subscribed quota.
+    """
+
     def __init__(self, client: httpx.AsyncClient | None = None, app_key: str | None = None):
         self._client = client
         self.app_key = settings.tfl_app_key if app_key is None else app_key
 
     def _params(self) -> dict[str, str]:
-        if not self.app_key:
-            raise ProviderNotConfigured("TfL provider is not configured.")
-        return {"app_key": self.app_key}
+        # Anonymous access is supported by TfL at a lower request limit.
+        # Preserve legacy app_key support for accounts that already have one.
+        return {"app_key": self.app_key} if self.app_key else {}
 
     async def _get(self, path: str):
         owns = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=15.0)
+        client = self._client or httpx.AsyncClient(timeout=20.0)
         try:
             response = await client.get(f"{TFL_API}{path}", params=self._params())
             response.raise_for_status()
@@ -101,6 +107,9 @@ class TfLProvider:
                             points=points,
                         )
                     )
+
+        if not paths:
+            raise ProviderUnavailable("TfL returned no usable live line geometry.")
 
         return NetworkResponse(
             provider="Transport for London Unified API",

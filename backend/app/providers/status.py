@@ -19,10 +19,13 @@ def provider_statuses() -> list[ProviderStatus]:
             id="tfl",
             name="Transport for London Unified API",
             kind="transit",
-            configured=bool(settings.tfl_app_key),
+            configured=True,
             supports_live_data=True,
-            purpose="Current London rail/transit lines and stop geometry.",
-            setup_hint=None if settings.tfl_app_key else "Set TFL_APP_KEY on the backend.",
+            purpose=(
+                "Live official London network/line geometry. "
+                + ("Authenticated TfL quota enabled." if settings.tfl_app_key else "Using TfL anonymous access (50 requests/minute limit).")
+            ),
+            setup_hint=None if settings.tfl_app_key else "Optional: set TFL_APP_KEY for a higher subscribed TfL request quota.",
         ),
         ProviderStatus(
             id="national-rail",
