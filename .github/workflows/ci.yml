@@ -5,29 +5,35 @@ on:
   pull_request:
 
 jobs:
-  backend-tests:
+  ci:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: PYTHONPATH=. pytest -q
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
 
-  web-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: node --check web/app.js
-      - run: node --test web/tests/*.test.mjs
-      - run: python scripts/validate_static.py
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run backend tests
+        working-directory: backend
+        run: PYTHONPATH=. pytest -q
+
+      - name: Validate web JavaScript
+        run: node --check web/app.js
+
+      - name: Run globe geometry tests
+        run: node --test web/tests/*.test.mjs
+
+      - name: Validate static UI
+        run: python scripts/validate_static.py
