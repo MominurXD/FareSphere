@@ -25,6 +25,7 @@ class SearchRequest(BaseModel):
     origin: str = Field(min_length=3, max_length=3)
     destination: str = Field(min_length=3, max_length=3)
     departure_date: date
+    departure_time: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     passengers: int = Field(default=1, ge=1, le=9)
     checked_bags: int = Field(default=0, ge=0, le=9)
     flexible_days: int = Field(default=0, ge=0, le=7)

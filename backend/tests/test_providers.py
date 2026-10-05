@@ -10,6 +10,7 @@ from app.providers.duffel import DuffelProvider
 from app.providers.national_rail import NationalRailProvider
 from app.providers.octotrip import OctoTripProvider
 from app.providers.tfl import TfLProvider
+from app.providers.tfl_journey import TfLJourneyProvider, is_london_ground_journey
 
 
 def test_duffel_parses_live_offer_without_guessing_price():
@@ -132,6 +133,67 @@ def test_octotrip_expands_lon_to_real_airports():
         assert {"LHR", "LGW", "STN", "LTN", "LCY"}.issubset(seen)
         assert result.results[0].legs[0].origin.code == "LGW"
         assert result.results[0].total_price == 39.99
+    asyncio.run(_run())
+
+
+def test_lon_to_heathrow_is_ground_transport():
+    assert is_london_ground_journey("LON", "LHR")
+    assert is_london_ground_journey("LHR", "LON")
+    assert not is_london_ground_journey("LON", "BCN")
+
+
+def test_tfl_journey_parses_real_fare_and_multiplies_travellers():
+    async def _run():
+        async def handler(request: httpx.Request):
+            assert request.url.path.startswith("/Journey/JourneyResults/")
+            assert request.url.params["date"] == "20261026"
+            assert request.url.params["time"] == "0900"
+            return httpx.Response(200, json={
+                "journeys": [{
+                    "startDateTime": "2026-10-26T09:00:00",
+                    "arrivalDateTime": "2026-10-26T09:47:00",
+                    "duration": 47,
+                    "fare": {
+                        "totalCost": 580,
+                        "fares": [{"cost": 580, "lowZone": 1, "highZone": 6}],
+                    },
+                    "legs": [
+                        {
+                            "departureTime": "2026-10-26T09:00:00",
+                            "arrivalTime": "2026-10-26T09:05:00",
+                            "departurePoint": {"commonName": "Westminster", "lat": 51.5007, "lon": -0.1246},
+                            "arrivalPoint": {"commonName": "Tottenham Court Road", "lat": 51.5165, "lon": -0.1309},
+                            "mode": {"id": "walking", "name": "walking"},
+                            "routeOptions": [],
+                        },
+                        {
+                            "departureTime": "2026-10-26T09:05:00",
+                            "arrivalTime": "2026-10-26T09:47:00",
+                            "departurePoint": {"commonName": "Tottenham Court Road", "lat": 51.5165, "lon": -0.1309},
+                            "arrivalPoint": {"commonName": "Heathrow Terminal 2 & 3", "lat": 51.4713, "lon": -0.4524},
+                            "mode": {"id": "train", "name": "train"},
+                            "routeOptions": [{"name": "Elizabeth line"}],
+                        },
+                    ],
+                }]
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            result = await TfLJourneyProvider(client=client, app_key="").search(SearchRequest(
+                origin="LON", destination="LHR", departure_date=date(2026, 10, 26),
+                departure_time="09:00", passengers=2, checked_bags=0, flexible_days=0, sort="best",
+            ))
+        finally:
+            await client.aclose()
+
+        assert result.providers_used == ["Transport for London Journey Planner"]
+        assert result.origin.code == "LON"
+        assert result.destination.code == "LHR"
+        assert result.results[0].total_price == 11.60
+        assert "£5.80 pp" in result.results[0].badges
+        assert result.results[0].label == "Elizabeth line"
+        assert result.results[0].price_verified is True
     asyncio.run(_run())
 
 

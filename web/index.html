@@ -38,14 +38,15 @@
             <label><span>To</span><div class="code-field"><i></i><input id="destination" maxlength="3" value="BCN" required /></div><small>IATA city / airport</small></label>
           </div>
           <div class="search-grid">
-            <label><span>Departure</span><input id="departure-date" type="date" required /></label>
+            <label><span>Departure date</span><input id="departure-date" type="date" required /></label>
+            <label><span>Departure time</span><input id="departure-time" type="time" value="09:00" required /></label>
             <label><span>Travellers</span><select id="passengers"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
             <label><span>Baggage</span><select disabled><option>Included allowance only</option></select></label>
             <label><span>Rank by</span><select id="sort"><option value="best">Best value</option><option value="cheapest">Lowest live price</option><option value="fastest">Fastest journey</option></select></label>
           </div>
-          <button class="primary" id="live-search" type="submit">Search live fares <b>→</b></button>
+          <button class="primary" id="live-search" type="submit">Search live journeys <b>→</b></button>
           <button class="sample-button hidden" id="sample-search" type="button">Preview clearly labelled sample data</button>
-          <div class="form-note">✓ Live mode never substitutes sample prices for unavailable providers.</div>
+          <div class="form-note">✓ London airport transfers use TfL journey planning + quoted fares; flight routes use live flight pricing.</div>
           <div class="inline-error hidden" id="search-error"></div>
         </form>
       </section>
@@ -65,7 +66,7 @@
 
       <section class="data-policy">
         <div><span class="eyebrow">Data integrity</span><h2>Designed to fail honestly.</h2></div>
-        <div class="policy-grid"><article><b>01</b><h3>Verified prices only</h3><p>Live fares come from configured commerce providers. FareSphere does not manufacture a replacement fare.</p></article><article><b>02</b><h3>Live rail context</h3><p>National Rail departures are displayed separately from fare search so timetable data is never mistaken for ticket pricing.</p></article><article><b>03</b><h3>Source provenance</h3><p>Every result records its provider and whether its price is verified or sample data.</p></article></div>
+        <div class="policy-grid"><article><b>01</b><h3>Verified prices only</h3><p>Local London fares come from TfL Journey Planner; flight fares come from live flight providers. FareSphere does not manufacture a replacement fare.</p></article><article><b>02</b><h3>Live rail context</h3><p>National Rail departures are displayed separately from fare search so timetable data is never mistaken for ticket pricing.</p></article><article><b>03</b><h3>Source provenance</h3><p>Every result records its provider and whether its price is verified or sample data.</p></article></div>
       </section>
     </main>
 

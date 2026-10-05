@@ -26,6 +26,30 @@ function configuredFlightProvider() {
   return state.providers.find((p) => p.kind === 'flights' && p.configured);
 }
 
+const LONDON_GROUND_CODES = new Set(['LON','LHR','LCY','LGW','LTN','STN']);
+
+function isLondonGroundRoute() {
+  const origin = $('origin').value.trim().toUpperCase();
+  const destination = $('destination').value.trim().toUpperCase();
+  return origin !== destination && LONDON_GROUND_CODES.has(origin) && LONDON_GROUND_CODES.has(destination);
+}
+
+function updateSearchMode() {
+  const pill = $('flight-state');
+  const button = $('live-search');
+  if (isLondonGroundRoute()) {
+    pill.className = 'state-pill live';
+    pill.textContent = 'LIVE · TFL JOURNEY + FARE';
+    if (!button.disabled) button.innerHTML = 'Search live journey <b>→</b>';
+    return;
+  }
+
+  const flights = configuredFlightProvider();
+  pill.className = `state-pill ${flights ? 'live' : 'offline'}`;
+  pill.textContent = flights ? `LIVE · ${flights.name.toUpperCase()}` : 'LIVE PROVIDER UNAVAILABLE';
+  if (!button.disabled) button.innerHTML = 'Search live fares <b>→</b>';
+}
+
 async function loadProviders() {
   try {
     const [providers, health] = await Promise.all([api('/providers'), api('/health')]);
@@ -35,10 +59,8 @@ async function loadProviders() {
     $('provider-items').innerHTML = providers.map((p) => `
       <div class="provider"><span class="provider-dot ${p.configured ? 'live' : ''}"></span><div><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.configured ? p.purpose : p.setup_hint)}</small></div></div>`).join('');
 
-    const flights = configuredFlightProvider();
     $('live-search').disabled = false;
-    $('flight-state').className = `state-pill ${flights ? 'live' : 'offline'}`;
-    $('flight-state').textContent = flights ? `LIVE · ${flights.name.toUpperCase()}` : 'LIVE PROVIDER UNAVAILABLE';
+    updateSearchMode();
     $('sample-search').classList.toggle('hidden', !health.sample_data_enabled);
 
     const tfl = providers.find((p) => p.id === 'tfl');
@@ -70,7 +92,8 @@ function fmtTime(value) { return new Date(value).toLocaleString('en-GB', { day:'
 function searchPayload(sample = false) {
   return {
     origin: $('origin').value.trim().toUpperCase(), destination: $('destination').value.trim().toUpperCase(),
-    departure_date: $('departure-date').value, passengers: Number($('passengers').value), checked_bags: 0,
+    departure_date: $('departure-date').value, departure_time: $('departure-time').value || '09:00',
+    passengers: Number($('passengers').value), checked_bags: 0,
     flexible_days: sample ? 2 : 0, sort: $('sort').value,
   };
 }
@@ -86,7 +109,7 @@ async function runSearch(sample = false) {
   } catch (error) {
     errorBox.textContent = error.message; errorBox.classList.remove('hidden');
   } finally {
-    $('live-search').innerHTML = 'Search live fares <b>→</b>';
+    updateSearchMode();
   }
 }
 
@@ -197,11 +220,11 @@ function setupGlobe() {
 
 $('search-form').addEventListener('submit',(event)=>{event.preventDefault();runSearch(false);});
 $('sample-search').addEventListener('click',()=>runSearch(true));
-$('swap').addEventListener('click',()=>{const a=$('origin').value;$('origin').value=$('destination').value;$('destination').value=a;});
+$('swap').addEventListener('click',()=>{const a=$('origin').value;$('origin').value=$('destination').value;$('destination').value=a;updateSearchMode();});
 $('load-departures').addEventListener('click',loadDepartures);
 $('refresh-providers').addEventListener('click',loadProviders);
-$('origin').addEventListener('input',(e)=>e.target.value=e.target.value.toUpperCase());
-$('destination').addEventListener('input',(e)=>e.target.value=e.target.value.toUpperCase());
+$('origin').addEventListener('input',(e)=>{e.target.value=e.target.value.toUpperCase();updateSearchMode();});
+$('destination').addEventListener('input',(e)=>{e.target.value=e.target.value.toUpperCase();updateSearchMode();});
 $('station').addEventListener('input',(e)=>e.target.value=e.target.value.toUpperCase());
 
 setDefaultDate();setupGlobe();loadProviders();

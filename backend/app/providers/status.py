@@ -12,7 +12,7 @@ def provider_statuses() -> list[ProviderStatus]:
             kind="flights",
             configured=True,
             supports_live_data=True,
-            purpose="Real-time flight fares displayed inside FareSphere, with metropolitan airport expansion.",
+            purpose="Real-time flight fares displayed inside FareSphere for genuine flight routes.",
             setup_hint=None,
         ),
         ProviderStatus(
@@ -22,7 +22,7 @@ def provider_statuses() -> list[ProviderStatus]:
             configured=True,
             supports_live_data=True,
             purpose=(
-                "Live official London network/line geometry. "
+                "Live London journey planning, quoted fares and network geometry. "
                 + ("Authenticated TfL quota enabled." if settings.tfl_app_key else "Using TfL anonymous access.")
             ),
             setup_hint=None,
